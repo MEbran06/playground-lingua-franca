@@ -1,0 +1,81 @@
+target Python 
+
+reactor UserInput {
+    output message
+
+    logical action ask_next
+
+    reaction(startup) -> ask_next {=
+        # Trigger first user prompt
+        ask_next.schedule(0)
+    =}
+
+    reaction(ask_next) -> message {=
+        text = input("You: ")
+        if text.strip():
+            message.set(text)
+        # Schedule next input
+        ask_next.schedule(0)
+    =}
+}
+
+reactor LLM {
+    input prompt
+    output response
+
+    state llm
+    state messages
+
+    reaction(startup) {=
+        import multiprocessing
+        from langchain_community.chat_models import ChatLlamaCpp
+
+        local_model = "/home/mebra/llm-wrkspc/Hermes-2-Pro-Llama-3-8B-Q4_K_M.gguf"
+
+        self.llm = ChatLlamaCpp(
+            temperature=0.5,
+            model_path=local_model,
+            n_ctx=10000,
+            n_batch=300,  # Should be between 1 and n_ctx, consider the amount of VRAM in your GPU.
+            max_tokens=512,
+            n_threads=multiprocessing.cpu_count() - 1,
+            repeat_penalty=1.5,
+            top_p=0.5,
+            verbose=False,
+        )
+    =}
+
+    reaction(prompt) -> response {=
+        
+        if self.messages is None:
+            self.messages = [
+                (
+                    "system",
+                    "You are a helpful assistant with access to the full conversation history. You can use this information to provide more accurate and helpful responses.",
+                ),
+            ]
+        
+        self.messages.append(("user", prompt.value))
+        ai_msg = self.llm.invoke(self.messages)
+        self.messages.append(("assistant", ai_msg.content))
+
+        response.set(ai_msg.content)
+    =}
+}
+
+reactor Output {
+    input text
+
+    reaction(text) {=
+        print("AI:", text.value)
+    =}
+}
+
+main reactor {
+    u = new UserInput()
+    llm = new LLM()
+    o = new Output()
+
+    u.message -> llm.prompt
+    llm.response -> o.text
+}
