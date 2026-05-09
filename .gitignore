@@ -58,11 +58,16 @@ local.properties
 # sbteclipse plugin
 .target
 
+include/
+
 # Tern plugin
 .tern-project
 
 # TeXlipse plugin
 .texlipse
+
+# venv
+.venv
 
 # STS (Spring Tool Suite)
 .springBeans

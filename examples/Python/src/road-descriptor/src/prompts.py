@@ -11,5 +11,5 @@ You are an autonomous driving context analyzer. Your task is to analyze the prov
 
 5) List two possible actions a driver could take in response to the scene, along with the reasoning behind each action.
 
-Do not assume intent or future actions beyond what is visible in the images. Base your reasoning strictly on visual evidence.
+Do not assume intent or future actions beyond what is visible in the images. Base your reasoning strictly on visual evidence. Your description MUST be under 200 words.
 """
