@@ -22,15 +22,15 @@ class VLMBackend:
     
 class BackendFactory:
     def __new__(cls, model_id: str, config):
-        if "moondream" in model_id.lower():
-            return MoondreamBackend(config=config, model_id=model_id)
+        if "moondream2" in model_id.lower():
+            return Moondream2Backend(config=config, model_id=model_id)
         elif "qwen" in model_id.lower():
             return QwenBackend(config=config, model_id=model_id)
         else:
             raise ValueError(f"Error: Unknown backend for model: {model_id}")
 
                 
-class MoondreamBackend(VLMBackend):
+class Moondream2Backend(VLMBackend):
     def __init__(self, config, model_id):
         super().__init__(config, model_id)
         self.load_model()
