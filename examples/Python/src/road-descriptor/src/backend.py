@@ -24,10 +24,11 @@ class BackendFactory:
     def __new__(cls, model_id: str, config):
         if "moondream2" in model_id.lower():
             return Moondream2Backend(config=config, model_id=model_id)
-        elif "qwen" in model_id.lower():
-            return QwenBackend(config=config, model_id=model_id)
         else:
-            raise ValueError(f"Error: Unknown backend for model: {model_id}")
+            try:
+                return DefaultBackend(config=config, model_id=model_id)
+            except Exception as e:
+                raise ValueError(f"Error: {e}")
 
                 
 class Moondream2Backend(VLMBackend):
@@ -42,7 +43,8 @@ class Moondream2Backend(VLMBackend):
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"[INFO] Using device: {device}")
-        self.model = self.model.to(device)  # Move model once at init
+        self.model = self.model.to(device)
+        self.model.eval()
 
         loading_end = time.time()
         self.model_loading_time = loading_end - loading_start
@@ -60,7 +62,7 @@ class Moondream2Backend(VLMBackend):
             stream=True
         )["answer"]
     
-class QwenBackend(VLMBackend):
+class DefaultBackend(VLMBackend):
     def __init__(self, config, model_id):
         super().__init__(config, model_id)
         self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
