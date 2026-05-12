@@ -1,4 +1,5 @@
 import time
+import threading
 import torch
 from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor
 from transformers.generation import TextIteratorStreamer
@@ -71,16 +72,17 @@ class DefaultBackend(VLMBackend):
     def load_model(self):
         loading_start = time.time()
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device_map = "auto" if device == "cuda" else "cpu"
+        print(f"[INFO] Using device: {device}")
+
         self.model = AutoModelForVision2Seq.from_pretrained(self.model_id,
                                                             trust_remote_code=True,
-                                                            device_map="auto",         # Optimizes device placement
-                                                            low_cpu_mem_usage=True,    # Skips redundant weight initialization
-                                                            torch_dtype="auto",        # Loads in the best precision (e.g., fp16)
-                                                            use_safetensors=True)      # Uses faster, memory-mapped file format
-        
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[INFO] Using device: {device}")
-        self.model = self.model.to(device)  # Move model once at init
+                                                            device_map=device_map,      # Let transformers handle device placement
+                                                            low_cpu_mem_usage=True,     # Skips redundant weight initialization
+                                                            torch_dtype="auto",         # Loads in the best precision (e.g., fp16)
+                                                            use_safetensors=True)       # Uses faster, memory-mapped file format
+        self.model.eval()
 
         loading_end = time.time()
         self.model_loading_time = loading_end - loading_start
@@ -114,13 +116,18 @@ class DefaultBackend(VLMBackend):
             skip_prompt=True,
             skip_special_tokens=True
         )
-        
-        self.t0 = time.time()
-        out_stream = self.model.generate(
-            **inputs, 
-            streamer=streamer,
-            max_new_tokens=500)
 
+        def generate_worker():
+            with torch.inference_mode():
+                self.model.generate(
+                    **inputs,
+                    streamer=streamer,
+                    max_new_tokens=80)
+
+        gen_thread = threading.Thread(target=generate_worker, daemon=True)
+        gen_thread.start()
+
+        self.t0 = time.time()
         return streamer
 
     

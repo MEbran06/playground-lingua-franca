@@ -1,6 +1,3 @@
-// target Python {
-//     logging: DEBUG, 
-// }
 target Python
 
 reactor CameraSensor {
@@ -32,7 +29,7 @@ reactor CameraSensor {
 
     reaction(startup) -> next_image {=
 
-        self.get_all_frames("/home/mebra/llm-wrkspc/playground-lingua-franca/examples/Python/src/road-descriptor/pictures")
+        self.get_all_frames("C:\\Users\\maria\\dev\\playground-lingua-franca\\examples\\Python\\src\\road-descriptor\\pictures")
         self.current_frame_pos = 0
         # Trigger first user prompt
         next_image.schedule(0)
@@ -337,7 +334,7 @@ reactor VLMInference {
         self.inference_thread.start()
         poll.schedule(MSEC(100))
 
-    =} deadline(6 sec) {=
+    =} deadline(10 sec) {=
         print("Deadline violation of VLM detected.")
     =}
 
