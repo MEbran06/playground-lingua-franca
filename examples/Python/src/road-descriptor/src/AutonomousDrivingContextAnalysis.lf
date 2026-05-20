@@ -1,6 +1,3 @@
-// target Python {
-//     logging: DEBUG, 
-// }
 target Python
 
 reactor CameraSensor {
