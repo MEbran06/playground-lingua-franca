@@ -29,7 +29,7 @@ class BackendFactory:
             try:
                 return DefaultBackend(config=config, model_id=model_id)
             except Exception as e:
-                raise ValueError(f"Error: {e}")
+                raise NotImplementedError(f"Error: {e}")
 
                 
 class Moondream2Backend(VLMBackend):
