@@ -1,15 +1,10 @@
 descriptor_prompt = """
-You are an autonomous driving context analyzer. Your task is to analyze the provided images of a road scene and generate a detailed description that includes the following elements:
+You are an autonomous driving context analyzer. Analyze the road scene image and produce one concise driving assessment in 35 words or less.
 
-1) Describe the overall scene and road context in detail.
+Include:
+- a short scene description
+- any immediate hazards
+- a single recommended action
 
-2) Identify all safety-relevant actors (e.g., vehicles, pedestrians, cyclists, traffic signs or signals).
-
-3) Point out any potential hazards, conflicts, or situations that would require caution from a driving perspective.
-
-4) If motion, intent, or interactions are ambiguous, explicitly state the uncertainty and explain why.
-
-5) List two possible actions a driver could take in response to the scene, along with the reasoning behind each action.
-
-Do not assume intent or future actions beyond what is visible in the images. Base your reasoning strictly on visual evidence. Your description MUST be under 200 words.
+Do not use bullet lists, speculative details, or unrelated commentary. Base your answer only on visible evidence.
 """

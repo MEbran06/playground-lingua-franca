@@ -32,7 +32,7 @@ reactor CameraSensor {
 
     reaction(startup) -> next_image {=
 
-        self.get_all_frames("/home/mebra/llm-wrkspc/playground-lingua-franca/examples/Python/src/road-descriptor/pictures")
+        self.get_all_frames("pictures")
         self.current_frame_pos = 0
         # Trigger first user prompt
         next_image.schedule(0)
@@ -40,7 +40,6 @@ reactor CameraSensor {
 
     reaction(next_image) -> image_path {=
         import time
-        print("Processing first image")
         file_path = self.get_current()
         if file_path.strip():
             image_path.set(file_path)
@@ -68,7 +67,6 @@ reactor ClipEmbedder {
   reaction(image_path) -> clip_record {=
     import torch
     from PIL import Image
-    print("embedding triggered")
     try:
         img = Image.open(image_path.value).convert("RGB").copy()
 
@@ -232,6 +230,24 @@ reactor VLMInference {
         import time
         import traceback
         from PIL import Image
+        from transformers import AutoConfig
+
+        generated_dir = os.path.dirname(os.path.abspath(__file__))
+        package_dir = os.path.abspath(os.path.join(generated_dir, "..", ".."))
+        src_path = os.path.join(package_dir, "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
+
+        from backend import BackendFactory
+
+        #model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
+        model_id = "vikhyatk/moondream2"
+
+        t = time.time()
+        _config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        # factory class that returns the correct backend based on the model
+        _backend = BackendFactory(model_id, _config)
+        print(f"Model Load time: {time.time() - t:.3f}")
 
         def run_vlm_job(self, image_path):
             """Run the blocking VLM work outside the LF reaction thread."""
@@ -284,7 +300,6 @@ reactor VLMInference {
 
     // initialize our state
     reaction(startup) {=
-        from transformers import AutoConfig
         import torch        
         import sys
         import os
@@ -297,15 +312,9 @@ reactor VLMInference {
             sys.path.insert(0, src_path)
 
         from prompts import descriptor_prompt
-        from backend import BackendFactory
 
-        #model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-        model_id = "vikhyatk/moondream2"
-
-        self.config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-
-        # factory class that returns the correct backend based on the model
-        self.backend = BackendFactory(model_id, self.config)
+        self.config = self._config
+        self.backend = self._backend
 
         self.descriptor_prompt = descriptor_prompt
         self.inference_thread = None
@@ -316,7 +325,6 @@ reactor VLMInference {
     =}
 
     reaction(inputed_image_path) -> poll {=
-        print("Inference triggered")
 
         with self.inference_lock:
             if self.inference_in_progress:
@@ -337,7 +345,7 @@ reactor VLMInference {
         self.inference_thread.start()
         poll.schedule(MSEC(100))
 
-    =} deadline(6 sec) {=
+    =} deadline(2 sec) {=
         print("Deadline violation of VLM detected.")
     =}
 
