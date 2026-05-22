@@ -228,55 +228,65 @@ reactor VLMInference {
         import traceback
         from PIL import Image
         from transformers import AutoConfig
+        from ollama import chat
 
-        generated_dir = os.path.dirname(os.path.abspath(__file__))
-        package_dir = os.path.abspath(os.path.join(generated_dir, "..", ".."))
-        src_path = os.path.join(package_dir, "src")
-        if src_path not in sys.path:
-            sys.path.insert(0, src_path)
+        # generated_dir = os.path.dirname(os.path.abspath(__file__))
+        # package_dir = os.path.abspath(os.path.join(generated_dir, "..", ".."))
+        # src_path = os.path.join(package_dir, "src")
+        # if src_path not in sys.path:
+        #     sys.path.insert(0, src_path)
 
-        from backend import BackendFactory
+        # from backend import BackendFactory
 
-        #model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-        model_id = "vikhyatk/moondream2"
+        model_id = "qwen2.5vl"
+        #model_id = "moondream"
 
-        t = time.time()
-        _config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-        # factory class that returns the correct backend based on the model
-        _backend = BackendFactory(model_id, _config)
-        print(f"Model Load time: {time.time() - t:.3f}")
+        # t = time.time()
+        # _config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        # # factory class that returns the correct backend based on the model
+        # _backend = BackendFactory(model_id, _config)
+        # print(f"Model Load time: {time.time() - t:.3f}")
 
         def run_vlm_job(self, image_path):
             """Run the blocking VLM work outside the LF reaction thread."""
             try:
 
-                t0 = self.time.time()
-                image_value = self.Image.open(image_path).convert("RGB").copy()
-                load_image_time = self.time.time() - t0
-                outStream = self.backend.run(image_value, self.descriptor_prompt)
+                # t0 = self.time.time()
+                # image_value = self.Image.open(image_path).convert("RGB").copy()
+                # load_image_time = self.time.time() - t0
+
+                outStream = self.chat(
+                    model=self.model_id,
+                    messages=[{"role": "user", 
+                                "content": self.descriptor_prompt,
+                                "images": [image_path] }],
+                    stream=True,
+                )
                
                 out = ""
-                num_tokens = 0
+                num_chunks = 0
                 t_first = None
+                t0 = self.time.time()
+                for chunk in outStream:
+                    if chunk.message.content:
+                        if num_chunks == 0:
+                            t_first = self.time.time()
 
-                for token in outStream:
-                    if num_tokens == 0:
-                        t_first = self.time.time()
-                    out += token
-                    num_tokens += 1
+                        # accumulate the partial content
+                        out += chunk.message.content
+
+                        num_chunks += 1
 
                 t_end = self.time.time()
                 if t_first is None:
                     t_first = t_end
 
-                prefill_plus_first = t_first - self.backend.t0
+                prefill_plus_first = t_first - t0
                 decode_only = t_end - t_first
-                avg_decode = decode_only / (num_tokens - 1) if num_tokens > 1 else 0.0
+                avg_decode = decode_only / (num_chunks - 1) if num_chunks > 1 else 0.0
 
                 result = {
                     "text": out.strip(),
-                    "image_encoding_time": self.backend.image_encoding_time,
-                    "image_load_time": load_image_time,
                     "avg_decode": avg_decode,
                     "decode_only": decode_only,
                     "prefill_plus_first": prefill_plus_first,
@@ -310,8 +320,8 @@ reactor VLMInference {
 
         from prompts import descriptor_prompt
 
-        self.config = self._config
-        self.backend = self._backend
+        # self.config = self._config
+        # self.backend = self._backend
 
         self.descriptor_prompt = descriptor_prompt
         self.inference_thread = None
@@ -342,7 +352,7 @@ reactor VLMInference {
         self.inference_thread.start()
         poll.schedule(MSEC(100))
 
-    =} deadline(2 sec) {=
+    =} deadline(5 sec) {=
         print("Deadline violation of VLM detected.")
     =}
 
@@ -368,14 +378,11 @@ reactor VLMInference {
             return
 
         if result is not None:
-            self.image_encoding_time = result["image_encoding_time"]
             self.decode_time_avg = result["avg_decode"]
             self.prefill_time = result["prefill_plus_first"]
             self.inference_time = result["decode_only"] + result["prefill_plus_first"]
-            self.end_to_end_latency = self.image_encoding_time + self.inference_time
+            self.end_to_end_latency = self.inference_time
 
-            print(f"image encoding time: {self.image_encoding_time:.3f}")
-            print(f"image loading time: {result['image_load_time']:.3f}s")
             print(f"Average Decode time: {self.decode_time_avg:.3f}s")
             print(f"Decode time: {result['decode_only']:.3f}s")
             print(f"Prefill time: {self.prefill_time:.3f}s")

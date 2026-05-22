@@ -3,6 +3,7 @@ import threading
 import torch
 from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor
 from transformers.generation import TextIteratorStreamer
+import ollama
 
 class VLMBackend:
     def __init__(self, config, model_id):
@@ -30,7 +31,6 @@ class BackendFactory:
                 return DefaultBackend(config=config, model_id=model_id)
             except Exception as e:
                 raise NotImplementedError(f"Error: {e}")
-
                 
 class Moondream2Backend(VLMBackend):
     def __init__(self, config, model_id):
@@ -130,4 +130,4 @@ class DefaultBackend(VLMBackend):
         self.t0 = time.time()
         return streamer
 
-    
+
