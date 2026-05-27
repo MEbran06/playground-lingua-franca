@@ -92,65 +92,58 @@ reactor SemanticCache {
   output cached_decision
   output miss_image_path
 
-  state max_items
   state threshold
-  state dim
-  state mat
-  state next_idx
+  state collection
   state last_query
   state last_image_path
 
   reaction(startup) {=
-    import numpy as np
+    import os
+    import chromadb
 
     self.threshold = 0.85
-    self.max_items = 256        # tune: 128/256/512 (trade memory vs hit-rate)
-    self.dim = None             # set on first insert / first query
-
-    # Matrix of cached vectors: shape (N, D), float32
-    self.mat = None             # np.ndarray
-    # Parallel list of decision strings
-    self.decisions = []         # list[str]
-
-    # FIFO pointer for overwrite when full (ring buffer)
-    self.next_idx = 0
     self.last_query = None
     self.last_image_path = None
+
+    persist_dir = os.path.join(os.getcwd(), "chroma_db")
+    client = chromadb.PersistentClient(path=persist_dir)
+    self.collection = client.get_or_create_collection(
+      name="road_descriptor_cache",
+      metadata={"hnsw:space": "cosine"}
+    )
   =}
 
   // Query: nearest neighbor by cosine similarity (dot product).
   reaction(clip_record) -> cached_decision, miss_image_path {=
     import numpy as np
 
-    # Keep an owned copy so a later VLM response can be stored without
-    # reusing an LF input token object.
     q = np.asarray(clip_record.value["vec"], dtype=np.float32).copy()
     self.last_query = q
     self.last_image_path = str(clip_record.value["path"])
 
-    # Empty cache
-    if self.mat is None or len(self.decisions) == 0:
+    if self.collection is None:
       cached_decision.set("")
       miss_image_path.set(self.last_image_path)
       return
 
-    # handle dimension mismatch
-    if self.dim is None:
-      self.dim = int(q.shape[0])
-    if q.shape[0] != self.dim:
+    results = self.collection.query(
+      query_embeddings=[q.tolist()],
+      n_results=1
+    )
+
+    distances = results.get("distances", [[]])[0]
+    documents = results.get("documents", [[]])[0]
+
+    if not distances:
       cached_decision.set("")
       miss_image_path.set(self.last_image_path)
       return
 
-    # Compute sims in one shot: (N,D) @ (D,) -> (N,)
-    sims = self.mat @ q
+    best_distance = float(distances[0])
+    similarity = 1.0 - best_distance
 
-    # Argmax
-    idx = int(np.argmax(sims))
-    best = float(sims[idx])
-
-    if best >= self.threshold:
-      cached_decision.set(self.decisions[idx])
+    if similarity >= self.threshold:
+      cached_decision.set(documents[0] if documents else "")
     else:
       cached_decision.set("")
       miss_image_path.set(self.last_image_path)
@@ -160,43 +153,23 @@ reactor SemanticCache {
   reaction(store_decision) {=
     import numpy as np
 
-    # Nothing to store
     if not store_decision.is_present:
       return
 
     if store_decision.value is None or store_decision.value.strip() == "":
       return
 
-    if self.last_query is None:
+    if self.last_query is None or self.last_image_path is None:
       return
 
     v = np.asarray(self.last_query, dtype=np.float32).copy()
 
-    # Initialize on first insert
-    if self.dim is None:
-      self.dim = int(v.shape[0])
-
-    # Dimension mismatch: ignore
-    if v.shape[0] != self.dim:
-      return
-
-    # First allocation
-    if self.mat is None:
-      self.mat = np.zeros((0, self.dim), dtype=np.float32)
-
-    n_items = self.mat.shape[0]
-
-    # If not full, append (grows mat)
-    if n_items < self.max_items:
-      self.mat = np.vstack([self.mat, v.reshape(1, -1)])
-      self.decisions.append(store_decision.value)
-      return
-
-    # If full, overwrite in ring buffer style (FIFO eviction)
-    i = int(self.next_idx)
-    self.mat[i, :] = v
-    self.decisions[i] = store_decision.value
-    self.next_idx = (i + 1) % self.max_items
+    self.collection.upsert(
+      ids=[str(self.last_image_path)],
+      embeddings=[v.tolist()],
+      documents=[store_decision.value],
+      metadatas=[{"path": str(self.last_image_path), "decision": store_decision.value}]
+    )
   =}
 }
 
@@ -238,8 +211,8 @@ reactor VLMInference {
 
         # from backend import BackendFactory
 
-        model_id = "qwen2.5vl"
-        #model_id = "moondream"
+        #model_id = "qwen2.5vl"
+        model_id = "moondream"
 
         # t = time.time()
         # _config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
@@ -264,32 +237,41 @@ reactor VLMInference {
                 )
                
                 out = ""
-                num_chunks = 0
-                t_first = None
-                t0 = self.time.time()
+                last_chunk = None
+
                 for chunk in outStream:
                     if chunk.message.content:
-                        if num_chunks == 0:
-                            t_first = self.time.time()
-
-                        # accumulate the partial content
                         out += chunk.message.content
+                    last_chunk = chunk
 
-                        num_chunks += 1
+                final_chunk = last_chunk if last_chunk is not None else None
 
-                t_end = self.time.time()
-                if t_first is None:
-                    t_first = t_end
+                prompt_eval_count = getattr(final_chunk, "prompt_eval_count", None) or 0
+                prompt_eval_duration = getattr(final_chunk, "prompt_eval_duration", None) or 0
+                eval_count = getattr(final_chunk, "eval_count", None) or 0
+                eval_duration = getattr(final_chunk, "eval_duration", None) or 0
+                total_duration = getattr(final_chunk, "total_duration", None) or 0
+                load_duration = getattr(final_chunk, "load_duration", None) or 0
 
-                prefill_plus_first = t_first - t0
-                decode_only = t_end - t_first
-                avg_decode = decode_only / (num_chunks - 1) if num_chunks > 1 else 0.0
+                prefill_time = prompt_eval_duration / 1_000_000_000.0
+                total_decode_time = eval_duration / 1_000_000_000.0
+                avg_decode_ms_per_token = (eval_duration / 1_000_000.0) / eval_count if eval_count > 0 else 0.0
+                decode_tokens_per_second = eval_count / total_decode_time if total_decode_time > 0 else 0.0
+                total_latency = total_duration / 1_000_000_000.0
+                load_time = load_duration / 1_000_000_000.0
+                image_phase_time = total_latency - (prefill_time + total_decode_time + load_time)
 
                 result = {
                     "text": out.strip(),
-                    "avg_decode": avg_decode,
-                    "decode_only": decode_only,
-                    "prefill_plus_first": prefill_plus_first,
+                    "avg_decode_ms_per_token": avg_decode_ms_per_token,
+                    "decode_tokens_per_second": decode_tokens_per_second,
+                    "total_decode_time": total_decode_time,
+                    "prefill_time": prefill_time,
+                    "prompt_eval_count": prompt_eval_count,
+                    "eval_count": eval_count,
+                    "total_latency": total_latency,
+                    "load_time": load_time,
+                    "image_phase_time": image_phase_time,
                 }
 
                 with self.inference_lock:
@@ -378,14 +360,19 @@ reactor VLMInference {
             return
 
         if result is not None:
-            self.decode_time_avg = result["avg_decode"]
-            self.prefill_time = result["prefill_plus_first"]
-            self.inference_time = result["decode_only"] + result["prefill_plus_first"]
-            self.end_to_end_latency = self.inference_time
+            self.decode_time_avg = result["avg_decode_ms_per_token"]
+            self.prefill_time = result["prefill_time"]
+            self.inference_time = result["total_decode_time"] + result["prefill_time"]
+            self.end_to_end_latency = result["total_latency"]
 
-            print(f"Average Decode time: {self.decode_time_avg:.3f}s")
-            print(f"Decode time: {result['decode_only']:.3f}s")
+            print(f"Average Decode time: {self.decode_time_avg:.3f} ms/token")
+            print(f"Decode throughput: {result['decode_tokens_per_second']:.1f} tokens/s")
+            print(f"Total Decode time: {result['total_decode_time']:.3f}s")
             print(f"Prefill time: {self.prefill_time:.3f}s")
+            print(f"Load time: {result['load_time']:.3f}s")
+            print(f"Image phase (residual): {result['image_phase_time']:.3f}s")
+            print(f"Prompt tokens: {result['prompt_eval_count']}")
+            print(f"Generated tokens: {result['eval_count']}")
             print(f"End to End latency time: {self.end_to_end_latency:.3f}s")
             response.set(result["text"])
     =}

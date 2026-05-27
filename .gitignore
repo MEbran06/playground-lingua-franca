@@ -159,4 +159,7 @@ gradle-app.setting
 ### Gradle Patch ###
 **/build/
 
+### chromaDB ###
+chroma_db/
+
 # End of https://www.toptal.com/developers/gitignore/api/intellij,gradle,eclipse,maven,visualstudiocode
