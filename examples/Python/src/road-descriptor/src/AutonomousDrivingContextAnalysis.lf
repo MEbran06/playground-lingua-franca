@@ -15,7 +15,7 @@ reactor CameraSensor {
 
         def get_all_frames(self, path):
             # sets a list of strings corresponding to the paths of the images
-            self.frames_ref = self.glob.glob(path+"/*.png")
+            self.frames_ref = self.glob.glob(path+"/*.jpg")
 
         def get_current(self):
             return self.frames_ref[self.current_frame_pos]
