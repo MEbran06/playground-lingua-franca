@@ -203,22 +203,17 @@ reactor VLMInference {
         from transformers import AutoConfig
         from ollama import chat
 
-        # generated_dir = os.path.dirname(os.path.abspath(__file__))
-        # package_dir = os.path.abspath(os.path.join(generated_dir, "..", ".."))
-        # src_path = os.path.join(package_dir, "src")
-        # if src_path not in sys.path:
-        #     sys.path.insert(0, src_path)
+        generated_dir = os.path.dirname(os.path.abspath(__file__))
+        package_dir = os.path.abspath(os.path.join(generated_dir, "..", ".."))
+        src_path = os.path.join(package_dir, "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
 
-        # from backend import BackendFactory
+        from util import ModelOutput
 
-        #model_id = "qwen2.5vl"
-        model_id = "moondream"
-
-        # t = time.time()
-        # _config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-        # # factory class that returns the correct backend based on the model
-        # _backend = BackendFactory(model_id, _config)
-        # print(f"Model Load time: {time.time() - t:.3f}")
+        model_id = "qwen2.5vl"
+        # model_id = "llava-phi3"
+        # model_id = "moondream"
 
         def run_vlm_job(self, image_path):
             """Run the blocking VLM work outside the LF reaction thread."""
@@ -234,6 +229,8 @@ reactor VLMInference {
                                 "content": self.descriptor_prompt,
                                 "images": [image_path] }],
                     stream=True,
+                    format=self.ModelOutput.model_json_schema(),
+                    options={"temperature": 0.0},
                 )
                
                 out = ""
@@ -261,8 +258,12 @@ reactor VLMInference {
                 load_time = load_duration / 1_000_000_000.0
                 image_phase_time = total_latency - (prefill_time + total_decode_time + load_time)
 
+                raw_output = out.strip()
+                validated_output = self.ModelOutput.model_validate_json(raw_output)
+                validated_json = validated_output.model_dump_json()
+
                 result = {
-                    "text": out.strip(),
+                    "text": validated_json,
                     "avg_decode_ms_per_token": avg_decode_ms_per_token,
                     "decode_tokens_per_second": decode_tokens_per_second,
                     "total_decode_time": total_decode_time,
