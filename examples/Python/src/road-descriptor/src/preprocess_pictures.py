@@ -8,7 +8,6 @@ This script rewrites all JPEG images under the local pictures/ directory to:
 - downscale them to a maximum side length, and
 - re-encode them with a chosen JPEG quality.
 
-It is intended as a lightweight alternative to changing the LF reactor code.
 """
 
 from __future__ import annotations
