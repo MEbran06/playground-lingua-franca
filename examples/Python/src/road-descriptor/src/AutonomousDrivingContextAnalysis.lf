@@ -78,7 +78,6 @@ reactor ClipEmbedder {
         vec = feats[0].cpu().tolist()
 
         clip_record.set({"path": image_path.value, "vec": vec})
-        print("clip vector set and true")
 
     except Exception as e:
         print("CLIP embedding failed:", e)
