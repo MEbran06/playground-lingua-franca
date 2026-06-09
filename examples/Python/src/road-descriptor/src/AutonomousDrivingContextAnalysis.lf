@@ -401,17 +401,35 @@ reactor ActionDisplay {
         self.frame_period_accumulator = 0.0
         self.avg_frame_period = 0.0
         self.fps = 0.0
+
+        from pathlib import Path
+
+        # Define the target directory path
+        dir_path = Path("responses")
+
+        # Create the directory safely
+        dir_path.mkdir(parents=True, exist_ok=True)
+
     =}
 
     reaction(response, cached_response) ->  trigger, store_decision {=
+        import json
+        data = ""
+
         if (cached_response.is_present and cached_response.value != ""):
             print("AI:", cached_response.value)
+            data = cached_response.value
             trigger.schedule(0)
             
         elif (response.is_present):
             print("AI:", response.value)
             store_decision.set(response.value)
+            data = response.value
             trigger.schedule(0)
+
+        # Save with 4-space indentation for readability
+        with open(f"responses/image_response_{self.counter}.json", "w") as file:
+            json.dump(data, file, indent=4)
     =}
 
     reaction(trigger) -> triggerSensor {=
